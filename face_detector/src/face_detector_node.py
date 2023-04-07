@@ -1,4 +1,5 @@
 import sys
+import os
 
 import cv2
 import rospy
@@ -11,7 +12,7 @@ class image_converter:
 		self.image_pub = rospy.Publisher("/detected", Image, queue_size=10)
 		if self.image_pub == None:
 			print("None")
-		self.image_sub = rospy.Subscriber("/movie", Image, self.callback)
+		self.image_sub = rospy.Subscriber("/webcam/image_raw", Image, self.callback)
 		if self.image_sub == None:
 			print("None")
 		
@@ -24,7 +25,23 @@ class image_converter:
 			print(e)
 
 		# rotate cvimage 90 degrees clockwise
-		cv_image = cv2.transpose(cv_image)
+		# cv_image = cv2.transpose(cv_image)
+
+		# face detection (not recognition)
+		dir_path = os.path.realpath(os.path.dirname(__file__))
+		# Load the cascade
+		face_cascade = cv2.CascadeClassifier(dir_path + '/../data/haarcascade_frontalface_default.xml')
+		# Read the input image
+		img = cv_image
+		# Convert into grayscale
+		gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+		# Detect faces
+		faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+		# Draw rectangle around the faces
+		for (x, y, w, h) in faces:
+			cv2.rectangle(img, (x, y), (x+w, y+h), (255, 0, 0), 2)
+
+		cv_image = img
 
 		try:
 			self.image_pub.publish(self.bridge.cv2_to_imgmsg(cv_image, "bgr8"))
