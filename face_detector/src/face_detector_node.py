@@ -11,7 +11,7 @@ from std_msgs.msg import Int64MultiArray, MultiArrayLayout
 class image_converter:
 	def __init__(self):
 		self.image_pub = rospy.Publisher("/detected_img", Image, queue_size=10)
-		self.image_sub = rospy.Subscriber("/webcam/image_raw", Image, self.callback)
+		self.image_sub = rospy.Subscriber("/camera/color/image_raw", Image, self.callback)
 		
 		self.detected_pub = rospy.Publisher("/detected", Int64MultiArray, queue_size=10)
 
@@ -24,7 +24,7 @@ class image_converter:
 			print(e)
 
 		# rotate cvimage 90 degrees clockwise
-		# cv_image = cv2.transpose(cv_image)
+		cv_image = cv2.transpose(cv_image)
 
 		# face detection (not recognition)
 		dir_path = os.path.realpath(os.path.dirname(__file__))

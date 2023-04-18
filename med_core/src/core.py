@@ -4,11 +4,13 @@ import numpy as np
 
 import rospy
 from std_msgs.msg import Int64MultiArray
+from move_base_msgs.msg import MoveBaseGoal
 
 class state_machine:
     def __init__(self):
         self.detected_sub = rospy.Subscriber("/detected", Int64MultiArray, self.callback)
         self.data = []
+        self.nav_pub = rospy.Publisher("/move_base", MoveBaseGoal)
 
     def callback(self, data):
         self.data = data.data
@@ -57,6 +59,23 @@ class state_machine:
 
             # SEEK
             print("Seeking...")
+            position = [-3.991, -1.297, 0.000]
+            orientation = [0.000, 0.000, 0.006, 1.000]
+
+            goal = MoveBaseGoal()
+            goal.target_pose.header.frame_id = 'map'
+            goal.target_pose.pose.position.x = position[0]
+            goal.target_pose.pose.position.y = position[1]
+            goal.target_pose.pose.position.z = 0.0
+            goal.target_pose.pose.orientation.x = orientation[0]
+            goal.target_pose.pose.orientation.y = orientation[1]
+            goal.target_pose.pose.orientation.z = orientation[2]
+            goal.target_pose.pose.orientation.w = orientation[3]
+            print(goal)
+
+            self.nav_pub.publish(goal)
+            print("hiakfaduajf")
+
             # DO ACTUAL STUFF
             # wait for /detected for x conesecutive frames
             self.seek()
