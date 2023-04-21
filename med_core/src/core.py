@@ -6,6 +6,8 @@ import rospy
 from std_msgs.msg import Int64MultiArray
 from geometry_msgs.msg import PoseStamped, Twist
 from actionlib_msgs.msg import GoalStatusArray
+from stretch_moveit_shim.srv import SetJoints, SetJointsRequest, SetBodyResponse
+from stretch_moveit_shim.msg import Joint
 
 class state_machine:
     def __init__(self):
@@ -23,30 +25,18 @@ class state_machine:
         self.is_busy = len(data.status_list) > 0 and data.status_list[-1].status == 1
 
     def seek(self, MAX_TIME=3000):
-        buffer_size = 10
-        count = np.zeros(buffer_size)
-        THRESHOLD = 0.5
-        MIN_FRAMES = 10
+        count = []
+        THRESHOLD = 0.2
         start_time = time.time()*1000
         elapsed_time = 0
-        total = 0
         while elapsed_time < MAX_TIME:
-            total += 1
-            if self.data[0] > 0:
-                count[:-1] = count[1:]
-                count[-1] = 1
-                start_time = time.time()*1000
-                print("I see *someone*")
-            else:
-                count[:-1] = count[1:]
-                count[-1] = 0
-            if total > MIN_FRAMES and np.mean(count) > THRESHOLD:
-                break
+            count.append(1 if self.data[0] > 0 else 0) # detected
             elapsed_time = time.time()*1000 - start_time
         # did we find them?
-        print("Found: ")
-        print(np.mean(count) >= THRESHOLD)
-        return np.mean(count) >= THRESHOLD
+        avg_detection = np.mean(count)
+        found = avg_detection >= THRESHOLD
+        print(f"Found: {found} - {avg_detection}")
+        return found
 
     def navigate(self, position, orientation):
         goal = PoseStamped()
@@ -62,7 +52,10 @@ class state_machine:
 
         self.nav_pub.publish(goal)
 
-    def rotate(self, time_ms=1000):
+    def rotate(self, angle, speed):
+        angle = np.radians(angle)
+        speed = np.radians(speed)
+        time_s = angle/speed
         print('rotating...')
         start_time = time.time()
         vel = Twist()
@@ -71,16 +64,66 @@ class state_machine:
         vel.linear.z = 0.0
         vel.angular.x = 0.0
         vel.angular.y = 0.0
-        vel.angular.z = 0.5
+        vel.angular.z = speed
         dt = time.time() - start_time
-        while dt < time_ms/1000:
+        while dt < time_s:
             self.vel_publisher.publish(vel)
             dt = time.time() - start_time
-            print(dt)
         vel.angular.z = 0.0
         self.vel_publisher.publish(vel)
         print('DONE rotating.')
 
+    def deliver(self):
+        detected, x, y, w, h = self.data
+        face_center = x+(w//2)
+        img_width = 240
+        img_center = img_width//2
+        
+        p = 0.05
+        d = img_width*p
+
+        vel = Twist()
+        vel.linear.x = 0.0
+        vel.linear.y = 0.0
+        vel.linear.z = 0.0
+        vel.angular.x = 0.0
+        vel.angular.y = 0.0
+        
+        speed = 0.1
+
+        # center in frame
+        while abs(img_center-face_center) > d:
+            detected, x, y, w, h = self.data
+            face_center = x+(w//2)
+            if face_center < img_center-d:
+                vel.angular.z = -1*speed
+            else:
+                vel.angular.z = 1*speed
+            self.vel_publisher.publish(vel)
+        vel.angular.z = 0.0
+        self.vel_publisher.publish(vel)
+
+        # approach
+
+    def wiggle(self):
+        try:
+            service = rospy.ServiceProxy('/stretch_interface/set_joints', SetJoints) # setup a service client
+            msg = Joint(joint_name='joint_head_tilt', val = -0.5) # create a joint with a name and value
+            service([msg]) # pass an array of joints. This code will block
+        except rospy.ServiceException as e:
+            print("Service call failed: %s"%e)
+        try:
+            service = rospy.ServiceProxy('/stretch_interface/set_joints', SetJoints) # setup a service client
+            msg = Joint(joint_name='joint_head_tilt', val = 0.5) # create a joint with a name and value
+            service([msg]) # pass an array of joints. This code will block
+        except rospy.ServiceException as e:
+            print("Service call failed: %s"%e)
+        try:
+            service = rospy.ServiceProxy('/stretch_interface/set_joints', SetJoints) # setup a service client
+            msg = Joint(joint_name='joint_head_tilt', val = 0.0) # create a joint with a name and value
+            service([msg]) # pass an array of joints. This code will block
+        except rospy.ServiceException as e:
+            print("Service call failed: %s"%e)
 
     def start(self):
         while True:
@@ -102,6 +145,7 @@ class state_machine:
             # SEEK
             print("Seeking...")
             positions = [[-3.991, -1.297, 0.000], [-1.582, -0.825, 0.000], [0.584, -0.759, 0.000]]
+            positions = [[-1.582, -0.825, 0.000]]
             orientation = [0.000, 0.000, 0.006, 1.000]
             found = False
             for idx, p in enumerate(positions):
@@ -111,25 +155,34 @@ class state_machine:
                 while self.is_busy:
                     time.sleep(1)
                 # spin
-                self.rotate(10000)
-                if self.seek():
-                    found = True
+                rotations = 7
+                for _ in range(rotations):
+                    self.rotate(360/rotations, 45)
+                    if self.seek():
+                        found = True
+                        break
+                if found:
                     break
 
-            if not found:
-                # recovery behavior
-                print("oh shit.. aint nobody here?")
-
-            # DELIVER MEDICATION
-            # do more stuff
-            print("Handoff meds")
+            if found:
+                # DELIVER MEDICATION
+                # do more stuff
+                print("Handing off meds")
+                self.deliver()
+                self.wiggle()
+                time.sleep(5)
+            else:
+                print("I didn't find anyone! :(")
 
             # GO HOME
             # nav goal
             print("go hoe")
+            self.navigate([-4.262, -3.064, 0.000], [-0.000, -0.000, 0.425, 0.905])
 
 def main(args):
     rospy.init_node('core', anonymous=True)
+    rospy.wait_for_service('/stretch_interface/set_joints') # check to make sure service client is available
+
     sm = state_machine()
     sm.start()
     rospy.spin()

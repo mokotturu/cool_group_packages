@@ -1,0 +1,11 @@
+ssh csrobot@192.168.10.5
+roslaunch stretch_core stretch_remote_bringup.launch
+
+rosservice call /switch_to_nav...
+
+rosrun face_detector face_detector
+rosrun stretch_moveit_shim stretch_interface_real
+
+roslaunch med_core navigation.launch
+
+rosrun med_core core.py
